@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Safe Care Glass Bridge Quiz</title>
+<style>
+  body { font-family: Arial, sans-serif; background: linear-gradient(to right, #a8edea, #fed6e3); text-align: center; padding: 20px; }
+  h1 { color: #2c3e50; }
+  .hidden { display: none; }
+  .timer { font-size: 20px; margin: 10px 0; }
+  .bridge { display: flex; justify-content: center; margin: 20px 0; }
+  .segment { width: 40px; height: 20px; margin: 2px; background-color: #bdc3c7; transition: background-color 0.5s; }
+  .segment.active { background-color: #27ae60; }
+  .question-box, .registration-box { background-color: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; max-width: 400px; margin: auto; }
+  .options button { display: block; width: 100%; margin: 10px 0; padding: 10px; border: none; border-radius: 5px; background-color: #3498db; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s; }
+  .options button:hover { background-color: #2980b9; }
+  .message { margin-top: 20px; font-size: 18px; font-weight: bold; color: #c0392b; }
+  input { width: 90%; padding: 10px; margin: 10px 0; border-radius: 5px; border: 1px solid #ccc; font-size: 16px; }
+  button.start-btn { padding: 10px 20px; background-color: #27ae60; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; transition: background-color 0.3s; }
+  button.start-btn:hover { background-color: #219150; }
+  ol { text-align: left; margin: 10px auto; max-width: 400px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<h1>Safe Care Glass Bridge Quiz</h1>
+
+<!-- Registration Form -->
+<div class="registration-box" id="registrationBox">
+  <h2>Register to Play</h2>
+  <input type="text" id="playerName" placeholder="Enter your name" required />
+  <input type="tel" id="playerPhone" placeholder="Enter your phone number" required />
+  <button class="start-btn" onclick="startGame()">Start Quiz</button>
+</div>
+
+<!-- Game Content -->
+<div id="gameContent" class="hidden">
+  <div class="timer">Time Left: <span id="time">05:00</span></div>
+  <div class="bridge" id="bridge"></div>
+
+  <div class="question-box" id="questionBox">
+    <div id="questionText">Question will appear here</div>
+    <div class="options" id="options"></div>
+    <div class="message" id="message"></div>
+  </div>
+</div>
+
+<script>
+  // Supabase setup
+  const supabaseUrl = "YOUR_SUPABASE_URL";
+  const supabaseKey = "YOUR_SUPABASE_ANON_KEY";
+  const supabase = Supabase.createClient(supabaseUrl, supabaseKey);
+
+  const registrationBox = document.getElementById('registrationBox');
+  const gameContent = document.getElementById('gameContent');
+  const timeDisplay = document.getElementById('time');
+  const questionBox = document.getElementById('questionBox');
+  const questionText = document.getElementById('questionText');
+  const optionsDiv = document.getElementById('options');
+  const messageDiv = document.getElementById('message');
+  const bridgeDiv = document.getElementById('bridge');
+
+  let currentLevel = 1;
+  let currentQuestion = 0;
+  let timeLeft = 300;
+  let isAlive = true;
+  let playerName = '';
+  let playerPhone = '';
+
+  // Questions with increasing difficulty
+  const questions = [
+    // Level 1 - Easy
+    { level: 1, text: "How often should newborns be checked?", options: ["Daily", "Once a month", "Never"], correct: 0 },
+    { level: 1, text: "What ensures newborn safety?", options: ["Hygiene", "Ignoring symptoms", "Overfeeding"], correct: 0 },
+
+    // Level 2 - Moderate
+    { level: 2, text: "Why is exclusive breastfeeding recommended for the first 6 months?", options: ["Provides immunity and nutrition", "It's cheaper", "Just a tradition"], correct: 0 },
+    { level: 2, text: "Who should get routine immunizations?", options: ["All children as per schedule", "Only sick children", "Only adults"], correct: 0 },
+
+    // Level 3 - Medium
+    { level: 3, text: "Which action reduces risk of neonatal infections?", options: ["Handwashing before handling baby", "Leaving baby unattended", "Sharing bottles"], correct: 0 },
+    { level: 3, text: "A baby has a fever and refuses feeding. What should you do?", options: ["Seek medical attention immediately", "Wait 3 days", "Ignore it"], correct: 0 },
+
+    // Level 4 - Hard
+    { level: 4, text: "Premature baby care requires:", options: ["Special warmth, feeding, monitoring", "Same care as full-term", "Minimal attention"], correct: 0 },
+    { level: 4, text: "Safe sleep position for newborns is:", options: ["On their back, firm surface, no loose blankets", "On stomach with pillows", "Sideways with soft blanket"], correct: 0 },
+
+    // Level 5 - Very Hard
+    { level: 5, text: "In a neonatal emergency, which is the priority?", options: ["Airway, breathing, circulation", "Check toys first", "Feed immediately"], correct: 0 },
+    { level: 5, text: "For preventing hospital-acquired infections in newborns, the best practice is:", options: ["Strict hand hygiene, sterilized equipment, limited visitors", "Only wash hands sometimes", "Let visitors handle freely"], correct: 0 },
+  ];
+
+  async function startGame() {
+    playerName = document.getElementById('playerName').value.trim();
+    playerPhone = document.getElementById('playerPhone').value.trim();
+
+    if (!playerName || !playerPhone) { alert("Please enter both name and phone number."); return; }
+
+    // Check if phone already played
+    const { data } = await supabase.from('leaderboard').select('phone').eq('phone', playerPhone).limit(1);
+    if (data.length > 0) { alert("This phone number has already played."); return; }
+
+    registrationBox.classList.add('hidden');
+    gameContent.classList.remove('hidden');
+    initializeGame();
+  }
+
+  function initializeGame() {
+    isAlive = true;
+    currentLevel = 1;
+    currentQuestion = 0;
+    timeLeft = 300;
+    updateBridge();
+    updateTimer();
+    loadQuestion();
+    startTimer();
+  }
+
+  function updateBridge() {
+    bridgeDiv.innerHTML = '';
+    for (let i = 0; i < 5; i++) {
+      const seg = document.createElement('div');
+      seg.classList.add('segment');
+      if (i < currentLevel - 1) seg.classList.add('active');
+      bridgeDiv.appendChild(seg);
+    }
+  }
+
+  function updateTimer() {
+    const minutes = String(Math.floor(timeLeft / 60)).padStart(2,'0');
+    const seconds = String(timeLeft % 60).padStart(2,'0');
+    timeDisplay.textContent = `${minutes}:${seconds}`;
+  }
+
+  function startTimer() {
+    const timer = setInterval(() => {
+      if (!isAlive) { clearInterval(timer); return; }
+      timeLeft--;
+      updateTimer();
+      if (timeLeft <= 0) { clearInterval(timer); endGame("Time's up! Better luck next time."); }
+    }, 1000);
+  }
+
+  function loadQuestion() {
+    if (!isAlive) return;
+    const q = questions[currentQuestion];
+    questionText.textContent = `Level ${q.level}: ${q.text}`;
+    optionsDiv.innerHTML = '';
+    q.options.forEach((opt, index) => {
+      const btn = document.createElement('button');
+      btn.textContent = opt;
+      btn.addEventListener('click', () => answerQuestion(index));
+      optionsDiv.appendChild(btn);
+    });
+    messageDiv.textContent = '';
+  }
+
+  async function answerQuestion(selectedIndex) {
+    if (!isAlive) return;
+    const q = questions[currentQuestion];
+    if (selectedIndex === q.correct) {
+      messageDiv.style.color = "#27ae60";
+      messageDiv.textContent = "Correct! Next question...";
+      currentQuestion++;
+      if (currentQuestion % 2 === 0) {
+        currentLevel++;
+        updateBridge();
+        if (currentLevel > 5) { endGame(`Well done, ${playerName}! You completed all levels!`); return; }
+        messageDiv.textContent = "Level Up! You're promoted!";
+      }
+      setTimeout(() => { if (isAlive) loadQuestion(); }, 1000);
+    } else {
+      endGame("Wrong answer! Better luck next time.");
+    }
+  }
+
+  async function endGame(text) {
+    isAlive = false;
+    messageDiv.style.color = "#c0392b";
+    messageDiv.textContent = text;
+    optionsDiv.innerHTML = '';
+
+    const score = currentQuestion;
+    const timeUsed = 300 - timeLeft;
+
+    await supabase.from('leaderboard').insert([{ name: playerName, phone: playerPhone, score, time_taken: timeUsed }]).catch(err => console.error(err));
+
+    showLeaderboard();
+  }
+
+  async function showLeaderboard() {
+    const { data } = await supabase.from('leaderboard').select('*').order('score', { ascending:false }).order('time_taken', { ascending:true }).limit(10);
+    let leaderboardHTML = `<h2>Leaderboard</h2><ol>`;
+    data.forEach(player => { leaderboardHTML += `<li>${player.name} - Score: ${player.score} - Time: ${player.time_taken}s</li>`; });
+    leaderboardHTML += `</ol><button onclick="location.reload()">Play Again</button>`;
+    questionBox.innerHTML = leaderboardHTML;
+  }
+</script>
+
+</body>
+</html>
+
